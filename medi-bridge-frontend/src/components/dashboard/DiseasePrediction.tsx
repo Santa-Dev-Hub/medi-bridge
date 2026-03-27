@@ -193,7 +193,7 @@ export default function DiseasePrediction() {
         toast.success(response.data.message || 'Disease prediction completed');
       } else {
         // show gentle info instead of error when model is unsure
-        toast("No confident match found — showing possible conditions", { type: 'info' });
+        toast("No confident match found — showing possible conditions", { icon: 'ℹ️' });
       }
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to get disease prediction');
