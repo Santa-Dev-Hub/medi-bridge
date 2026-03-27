@@ -216,20 +216,48 @@ export const predictDisease = async (req, res) => {
     if (!Array.isArray(symptoms) || symptoms.length === 0)
       return res.status(400).json({ message: 'Symptoms are required as a non-empty array' });
 
-    const s = symptoms.map(x => x.toLowerCase());
+    // normalize and map common symptom synonyms
+    const normalize = (str) => str.toLowerCase().replace(/[_-]/g, ' ').trim();
+
+    const synonyms = {
+      'high fever': 'fever',
+      'mild fever': 'fever',
+      'fever': 'fever',
+      'cough': 'cough',
+      'phlegm': 'cough',
+      'sore throat': 'sore throat',
+      'throat irritation': 'sore throat',
+      'headache': 'headache',
+      'nausea': 'nausea',
+      'sensitivity to light': 'sensitivity to light',
+      'sensitivity to light)': 'sensitivity to light',
+      'shortness of breath': 'shortness of breath',
+      'breathlessness': 'shortness of breath',
+      'chest pain': 'chest pain',
+      'abdominal pain': 'abdominal pain',
+      'diarrhoea': 'diarrhea',
+      'diarrhea': 'diarrhea',
+    };
+
+    const mapped = symptoms.map(sym => {
+      const n = normalize(sym);
+      return synonyms[n] || n;
+    });
+
+    const has = (token) => mapped.includes(token);
 
     const conditions = [];
 
-    if (s.includes('fever') && (s.includes('cough') || s.includes('sore throat'))) {
+    if (has('fever') && (has('cough') || has('sore throat'))) {
       conditions.push({ name: 'Flu', confidence: 0.8 });
     }
-    if (s.includes('headache') && (s.includes('nausea') || s.includes('sensitivity to light'))) {
+    if (has('headache') && (has('nausea') || has('sensitivity to light'))) {
       conditions.push({ name: 'Migraine', confidence: 0.75 });
     }
-    if (s.includes('chest pain') || s.includes('shortness of breath')) {
+    if (has('chest pain') || has('shortness of breath')) {
       conditions.push({ name: 'Cardiac issue (seek urgent care)', confidence: 0.9 });
     }
-    if (s.includes('abdominal pain') && s.includes('diarrhea')) {
+    if (has('abdominal pain') && has('diarrhea')) {
       conditions.push({ name: 'Gastroenteritis', confidence: 0.7 });
     }
 
