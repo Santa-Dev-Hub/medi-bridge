@@ -225,7 +225,7 @@ export const predictDisease = async (req, res) => {
           return String(s).replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         }).join(', ');
 
-        const prompt = `You are a concise medical triage assistant. Given the symptoms below, produce ONLY valid JSON with these keys:\n- prediction: string (single most likely condition)\n- confidence: number (0.0-1.0) representing certainty\n- possible: array of {name:string, confidence:number} ordered by confidence\n- departments: array of short department names (e.g., "Cardiology", "ENT", "General Medicine")\n\nInstructions:\n- ALWAYS return valid JSON and nothing else.\n- If uncertain, STILL return your best-guess prediction with a low confidence (e.g., 0.1-0.4) and include other plausible conditions in "possible".\n- Do NOT include explanatory text outside the JSON.\n\nSymptoms: ${humanSymptoms}`;
+        const prompt = `You are a concise medical triage assistant. Given the symptoms below, produce ONLY valid JSON with these keys:\n- prediction: string (single most likely condition)\n- confidence: number (0.0-1.0) representing estimated probability for the prediction\n- possible: array of {name:string, confidence:number} ordered by confidence (these confidences MUST sum to ~1.0)\n- departments: array of short department names (e.g., "Cardiology", "ENT", "General Medicine")\n\nImportant details and constraints:\n- Allowed conditions (choose from these): Flu, Common Cold, Gastroenteritis, Migraine, COVID-19 (possible), Cardiac issue (seek urgent care), Food Poisoning, Pneumonia, Allergic Reaction, UTI, Sinusitis, Anxiety, Depression.\n- ALWAYS return valid JSON and nothing else, with numeric confidences between 0.0 and 1.0.\n- The values in "possible" should be ordered by confidence and should approximately sum to 1.0 (small rounding differences OK).\n- "confidence" must match the probability assigned to the top "prediction" in "possible".\n- If uncertain, still return a best-guess with low confidence (0.05-0.4) and include other plausible diagnoses with probabilities.\n- Do NOT include any explanatory text or Markdown outside the JSON.\n- Keep responses concise and machine-readable only.\n\nSymptoms: ${humanSymptoms}`;
 
         const completion = await client.chat.completions.create({
           model: "gpt-3.5-turbo",
@@ -270,6 +270,32 @@ export const predictDisease = async (req, res) => {
       'abdominal pain': 'abdominal pain',
       'diarrhoea': 'diarrhea',
       'diarrhea': 'diarrhea',
+      'runny nose': 'runny nose',
+      'sneezing': 'sneezing',
+      'loss of taste': 'loss of taste',
+      'loss of smell': 'loss of smell',
+      'anosmia': 'loss of smell',
+      'fatigue': 'fatigue',
+      'dry cough': 'cough',
+      'body ache': 'body ache',
+      'body_ache': 'body ache',
+      'vomiting': 'vomiting',
+      'sweating': 'sweating',
+      'productive cough': 'productive cough',
+      'itchy eyes': 'itchy eyes',
+      'itchy_eyes': 'itchy eyes',
+      'burning on urination': 'burning on urination',
+      'frequent urination': 'frequent urination',
+      'lower abdominal pain': 'lower abdominal pain',
+      'heartburn': 'heartburn',
+      'acid reflux': 'acid reflux',
+      'stomach bloating': 'stomach bloating',
+      'stomach_bloating': 'stomach bloating',
+      'blurred vision': 'blurred vision',
+      'dizziness': 'dizziness',
+      'tingling': 'tingling',
+      'rash': 'rash',
+      'itchy skin': 'itchy skin'
     };
 
     const mapped = symptoms.map(sym => {
@@ -284,6 +310,14 @@ export const predictDisease = async (req, res) => {
     if (has('fever') && (has('cough') || has('sore throat'))) {
       conditions.push({ name: 'Flu', confidence: 0.8 });
     }
+    // Common cold mappings
+    if ((has('sneezing') || has('runny nose')) && has('sore throat')) {
+      conditions.push({ name: 'Common Cold', confidence: 0.6 });
+    }
+    // COVID-like mapping (loss of taste/smell + respiratory symptoms)
+    if ((has('loss of taste') || has('loss of smell')) && (has('fever') || has('cough') || has('dry cough') || has('fatigue'))) {
+      conditions.push({ name: 'COVID-19 (possible)', confidence: 0.85 });
+    }
     if (has('headache') && (has('nausea') || has('sensitivity to light'))) {
       conditions.push({ name: 'Migraine', confidence: 0.75 });
     }
@@ -295,8 +329,56 @@ export const predictDisease = async (req, res) => {
     }
 
     if (conditions.length === 0) {
-      // fallback: return most likely generic condition
-      return res.status(200).json({ prediction: 'Inconclusive', possible: [], message: 'No confident match found' });
+      // relaxed heuristic fallback: attempt to match templates and return a best-guess
+      const templates = {
+        'Flu': ['fever', 'cough', 'body ache', 'fatigue'],
+        'Common Cold': ['sneezing', 'runny nose', 'sore throat', 'itchy eyes'],
+        'Gastroenteritis': ['nausea', 'vomiting', 'diarrhea', 'abdominal pain', 'stomach bloating'],
+        'Migraine': ['headache', 'sensitivity to light', 'nausea', 'blurred vision', 'dizziness'],
+        'COVID-19 (possible)': ['fever', 'dry cough', 'loss of taste', 'loss of smell', 'fatigue'],
+        'Cardiac issue (seek urgent care)': ['chest pain', 'shortness of breath', 'sweating'],
+        'Food Poisoning': ['nausea', 'vomiting', 'diarrhea', 'abdominal pain', 'fever'],
+        'Pneumonia': ['fever', 'productive cough', 'shortness of breath', 'chest pain'],
+        'Allergic Reaction': ['rash', 'itchy skin', 'itchy eyes', 'sneezing'],
+        'UTI': ['burning on urination', 'frequent urination', 'lower abdominal pain', 'fever'],
+        'Acid Reflux': ['heartburn', 'acid reflux', 'stomach bloating']
+      };
+
+      const scores = [];
+      for (const [cond, toks] of Object.entries(templates)) {
+        const matchCount = toks.filter(t => mapped.includes(t)).length;
+        const tokLen = toks.length || 1;
+        const ratio = matchCount / tokLen;
+        if (matchCount > 0) {
+          // stronger confidence scaling: base + ratio-weighted boost
+          const base = cond.startsWith('Cardiac') ? 0.82 : cond === 'COVID-19 (possible)' ? 0.75 : cond === 'Pneumonia' ? 0.7 : cond === 'Flu' ? 0.65 : 0.55;
+          const confidence = Math.min(0.98, Math.round((base + ratio * 0.35) * 100) / 100);
+          scores.push({ name: cond, confidence, matchCount });
+        }
+      }
+
+      if (scores.length > 0) {
+        scores.sort((a, b) => b.confidence - a.confidence || b.matchCount - a.matchCount);
+        return res.status(200).json({ prediction: scores[0].name, confidence: scores[0].confidence, possible: scores });
+      }
+
+      // If still no scores, compute similarity (Jaccard) between input symptoms and templates
+      const normalizeToken = (s) => String(s).toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/[_-]/g, ' ').trim();
+      const inputSet = new Set(mapped.map(normalizeToken));
+      const simResults = [];
+      for (const [cond, toks] of Object.entries(templates)) {
+        const tokSet = new Set(toks.map(normalizeToken));
+        const intersection = [...inputSet].filter(x => tokSet.has(x)).length;
+        const union = new Set([...inputSet, ...tokSet]).size || 1;
+        const jaccard = intersection / union; // 0..1
+        // scale jaccard to a confidence in a conservative range
+        const confidence = Math.round((Math.max(0.05, jaccard) * 0.7 + 0.1) * 100) / 100; // roughly 0.1-0.8
+        simResults.push({ name: cond, confidence, jaccard, matchCount: intersection });
+      }
+      simResults.sort((a, b) => b.confidence - a.confidence || b.matchCount - a.matchCount);
+      // return top 3 possible suggestions
+      const possible = simResults.slice(0, 3).map(r => ({ name: r.name, confidence: r.confidence }));
+      return res.status(200).json({ prediction: possible[0].name, confidence: possible[0].confidence, possible });
     }
 
     // sort by confidence
