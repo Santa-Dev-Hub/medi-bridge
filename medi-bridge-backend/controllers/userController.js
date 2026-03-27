@@ -221,7 +221,11 @@ export const predictDisease = async (req, res) => {
     if (process.env.OPENAI_API_KEY) {
       try {
         const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        const prompt = `You are a helpful medical assistant. Given the following list of symptoms, return a JSON object with keys: \n- prediction: string (most likely condition)\n- confidence: number (0.0-1.0)\n- possible: array of {name:string, confidence:number}\n- departments: array of strings (relevant departments)\n\nSymptoms: ${JSON.stringify(symptoms)}\n\nRespond ONLY with valid JSON.`;
+        const humanSymptoms = symptoms.map(s => {
+          return String(s).replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        }).join(', ');
+
+        const prompt = `You are a concise medical triage assistant. Given the symptoms below, produce ONLY valid JSON with these keys:\n- prediction: string (single most likely condition)\n- confidence: number (0.0-1.0) representing certainty\n- possible: array of {name:string, confidence:number} ordered by confidence\n- departments: array of short department names (e.g., "Cardiology", "ENT", "General Medicine")\n\nInstructions:\n- ALWAYS return valid JSON and nothing else.\n- If uncertain, STILL return your best-guess prediction with a low confidence (e.g., 0.1-0.4) and include other plausible conditions in "possible".\n- Do NOT include explanatory text outside the JSON.\n\nSymptoms: ${humanSymptoms}`;
 
         const completion = await client.chat.completions.create({
           model: "gpt-3.5-turbo",

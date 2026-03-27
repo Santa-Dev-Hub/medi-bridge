@@ -188,7 +188,13 @@ export default function DiseasePrediction() {
 
       setPrediction(response.data.prediction || response.data || null);
       setDepartments(response.data.departments || response.data.possible?.map((p: any) => p.name) || []);
-      toast.success(response.data.message || 'Disease prediction completed');
+      const msg = response.data.message || '';
+      if (!msg.toLowerCase().includes('no confident')) {
+        toast.success(response.data.message || 'Disease prediction completed');
+      } else {
+        // show gentle info instead of error when model is unsure
+        toast("No confident match found — showing possible conditions", { type: 'info' });
+      }
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to get disease prediction');
     } finally {
