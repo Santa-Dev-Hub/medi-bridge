@@ -1,5 +1,5 @@
 import express from "express";
-import { signUp, signIn, updateProfile, getAllDoctors, getDoctorsBySpecialization, getDoctorSlots } from "../controllers/userController.js";
+import { signUp, signIn, updateProfile, getAllDoctors, getDoctorsBySpecialization, getDoctorSlots, predictDisease } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import { 
   initiatePhoneBooking,
@@ -35,6 +35,9 @@ router.post("/confirm-appointment", protect, confirmAppointment);
 router.post("/bookAppointment", protect, bookAppointment);
 router.get("/getAppointments", protect, getAppointments);
 router.get("/info/:type/:id", protect, getUserOrDoctorById);
+
+// Disease prediction (simple rule-based)
+router.post("/predictDisease", protect, predictDisease);
 
 
 export default router;

@@ -208,3 +208,43 @@ export const getUserOrDoctorById = async (req, res) => {
     res.status(500).json({ message: "Error fetching info", error: error.message });
   }
 };
+
+// 🧠 Simple disease prediction (rule-based fallback)
+export const predictDisease = async (req, res) => {
+  try {
+    const { symptoms } = req.body;
+    if (!Array.isArray(symptoms) || symptoms.length === 0)
+      return res.status(400).json({ message: 'Symptoms are required as a non-empty array' });
+
+    const s = symptoms.map(x => x.toLowerCase());
+
+    const conditions = [];
+
+    if (s.includes('fever') && (s.includes('cough') || s.includes('sore throat'))) {
+      conditions.push({ name: 'Flu', confidence: 0.8 });
+    }
+    if (s.includes('headache') && (s.includes('nausea') || s.includes('sensitivity to light'))) {
+      conditions.push({ name: 'Migraine', confidence: 0.75 });
+    }
+    if (s.includes('chest pain') || s.includes('shortness of breath')) {
+      conditions.push({ name: 'Cardiac issue (seek urgent care)', confidence: 0.9 });
+    }
+    if (s.includes('abdominal pain') && s.includes('diarrhea')) {
+      conditions.push({ name: 'Gastroenteritis', confidence: 0.7 });
+    }
+
+    if (conditions.length === 0) {
+      // fallback: return most likely generic condition
+      return res.status(200).json({ prediction: 'Inconclusive', possible: [], message: 'No confident match found' });
+    }
+
+    // sort by confidence
+    conditions.sort((a, b) => b.confidence - a.confidence);
+    const top = conditions[0];
+
+    res.status(200).json({ prediction: top.name, confidence: top.confidence, possible: conditions });
+  } catch (error) {
+    console.error('Prediction error:', error);
+    res.status(500).json({ message: 'Error while predicting disease', error: error.message });
+  }
+};
