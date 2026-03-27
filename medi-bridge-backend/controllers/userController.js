@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import OpenAI from "openai";
 import User from "../models/User.js";
 import Doctor from "../models/doctorModel.js";
 import Appointment from "../models/Appointment.js";
@@ -215,6 +216,34 @@ export const predictDisease = async (req, res) => {
     const { symptoms } = req.body;
     if (!Array.isArray(symptoms) || symptoms.length === 0)
       return res.status(400).json({ message: 'Symptoms are required as a non-empty array' });
+
+    // If OPENAI_API_KEY is configured, try an ML-based prediction via OpenAI
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const prompt = `You are a helpful medical assistant. Given the following list of symptoms, return a JSON object with keys: \n- prediction: string (most likely condition)\n- confidence: number (0.0-1.0)\n- possible: array of {name:string, confidence:number}\n- departments: array of strings (relevant departments)\n\nSymptoms: ${JSON.stringify(symptoms)}\n\nRespond ONLY with valid JSON.`;
+
+        const completion = await client.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.2,
+          max_tokens: 500,
+        });
+
+        const text = completion.choices?.[0]?.message?.content?.trim();
+        if (text) {
+          try {
+            const data = JSON.parse(text);
+            return res.status(200).json(data);
+          } catch (err) {
+            // fall through to rule-based if parsing fails
+            console.warn('OpenAI response not valid JSON, falling back to rule-based:', text);
+          }
+        }
+      } catch (err) {
+        console.error('OpenAI prediction failed, falling back to rule-based:', err?.message || err);
+      }
+    }
 
     // normalize and map common symptom synonyms
     const normalize = (str) => str.toLowerCase().replace(/[_-]/g, ' ').trim();
