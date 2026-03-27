@@ -174,9 +174,20 @@ export default function DiseasePrediction() {
     }
     setLoading(true);
     try {
-      const response = await axios.post('/user/predictDisease', { symptoms: selectedSymptoms });
-      setPrediction(response.data.prediction || null);
-      setDepartments(response.data.departments || []);
+      // Try protected endpoint first (requires auth). If 401, fall back to public route.
+      let response;
+      try {
+        response = await axios.post('/user/predictDisease', { symptoms: selectedSymptoms });
+      } catch (err: any) {
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          response = await axios.post('/user/predictDisease-public', { symptoms: selectedSymptoms });
+        } else {
+          throw err;
+        }
+      }
+
+      setPrediction(response.data.prediction || response.data || null);
+      setDepartments(response.data.departments || response.data.possible?.map((p: any) => p.name) || []);
       toast.success(response.data.message || 'Disease prediction completed');
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to get disease prediction');

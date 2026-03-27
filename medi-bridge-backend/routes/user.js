@@ -38,6 +38,8 @@ router.get("/info/:type/:id", protect, getUserOrDoctorById);
 
 // Disease prediction (simple rule-based)
 router.post("/predictDisease", protect, predictDisease);
+// Public prediction endpoint (no auth) - fallback for clients without token
+router.post("/predictDisease-public", predictDisease);
 
 
 export default router;
