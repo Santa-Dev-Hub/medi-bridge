@@ -1,0 +1,19 @@
+[
+  { "label": "Flu", "symptoms": ["fever","cough","body ache","fatigue","headache"] },
+  { "label": "Flu", "symptoms": ["fever","cough","phlegm","body ache"] },
+  { "label": "Common Cold", "symptoms": ["sneezing","runny nose","sore throat","congestion"] },
+  { "label": "Common Cold", "symptoms": ["sneezing","runny nose","itchy eyes"] },
+  { "label": "Gastroenteritis", "symptoms": ["nausea","vomiting","diarrhea","abdominal pain"] },
+  { "label": "Gastroenteritis", "symptoms": ["nausea","diarrhea","stomach bloating"] },
+  { "label": "Migraine", "symptoms": ["headache","sensitivity to light","nausea","blurred vision"] },
+  { "label": "Migraine", "symptoms": ["headache","sensitivity to light","dizziness"] },
+  { "label": "COVID-19 (possible)", "symptoms": ["fever","dry cough","loss of taste","loss of smell","fatigue"] },
+  { "label": "COVID-19 (possible)", "symptoms": ["fever","dry cough","loss of smell"] },
+  { "label": "Pneumonia", "symptoms": ["fever","productive cough","shortness of breath","chest pain"] },
+  { "label": "Pneumonia", "symptoms": ["fever","productive cough","blood in sputum"] },
+  { "label": "UTI", "symptoms": ["burning on urination","frequent urination","lower abdominal pain"] },
+  { "label": "UTI", "symptoms": ["frequent urination","lower abdominal pain","fever"] },
+  { "label": "Cardiac issue (seek urgent care)", "symptoms": ["chest pain","shortness of breath","sweating"] },
+  { "label": "Allergic Reaction", "symptoms": ["rash","itchy skin","sneezing","itchy eyes"] },
+  { "label": "Acid Reflux", "symptoms": ["heartburn","acid reflux","stomach bloating"] }
+]

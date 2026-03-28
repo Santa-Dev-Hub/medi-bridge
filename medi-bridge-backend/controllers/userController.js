@@ -1,6 +1,8 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import OpenAI from "openai";
+import fs from "fs";
+import path from "path";
 import User from "../models/User.js";
 import Doctor from "../models/doctorModel.js";
 import Appointment from "../models/Appointment.js";
@@ -249,6 +251,66 @@ export const predictDisease = async (req, res) => {
       }
     }
 
+    // --- Naive Bayes classifier loader/trainer (lightweight) ---
+    const loadDataset = () => {
+      try {
+        const p = path.resolve(process.cwd(), 'medi-bridge-backend', 'data', 'symptom_dataset.json');
+        const raw = fs.readFileSync(p, 'utf8');
+        return JSON.parse(raw);
+      } catch (err) {
+        console.warn('Could not load dataset, NB disabled', err?.message || err);
+        return null;
+      }
+    };
+
+    const trainNB = (dataset) => {
+      const classCounts = {}; // label -> count
+      const tokenCounts = {}; // label -> { token: count }
+      const vocab = new Set();
+      let total = 0;
+      dataset.forEach(item => {
+        const label = item.label;
+        classCounts[label] = (classCounts[label] || 0) + 1;
+        total += 1;
+        tokenCounts[label] = tokenCounts[label] || {};
+        item.symptoms.forEach(s => {
+          const t = String(s).toLowerCase().trim();
+          vocab.add(t);
+          tokenCounts[label][t] = (tokenCounts[label][t] || 0) + 1;
+        });
+      });
+      return { classCounts, tokenCounts, vocab, total };
+    };
+
+    const predictNB = (model, inputTokens) => {
+      if (!model) return null;
+      const { classCounts, tokenCounts, vocab, total } = model;
+      const labels = Object.keys(classCounts);
+      const V = vocab.size || 1;
+      const scores = {};
+      labels.forEach(label => {
+        // prior
+        const prior = Math.log((classCounts[label] + 1) / (total + labels.length));
+        let score = prior;
+        const tc = tokenCounts[label] || {};
+        inputTokens.forEach(t => {
+          const count = tc[t] || 0;
+          // Laplace smoothing
+          const prob = (count + 1) / (Object.values(tc).reduce((a,b)=>a+b,0) + V);
+          score += Math.log(prob);
+        });
+        scores[label] = Math.exp(score); // unnormalized
+      });
+      // normalize
+      const sum = Object.values(scores).reduce((a,b)=>a+b,0) || 1;
+      const out = Object.entries(scores).map(([k,v]) => ({ name: k, probability: Math.round((v/sum)*100)/100 }));
+      out.sort((a,b)=>b.probability - a.probability);
+      return out;
+    };
+
+    const dataset = loadDataset();
+    const nbModel = dataset ? trainNB(dataset) : null;
+
     // normalize and map common symptom synonyms
     const normalize = (str) => str.toLowerCase().replace(/[_-]/g, ' ').trim();
 
@@ -302,13 +364,18 @@ export const predictDisease = async (req, res) => {
       const n = normalize(sym);
       return synonyms[n] || n;
     });
+    
+      // prepare NB tokens from mapped symptoms
+      const nbTokens = mapped.map(s => String(s).toLowerCase().trim());
+      const nbResult = predictNB(nbModel, nbTokens);
 
     const has = (token) => mapped.includes(token);
 
     const conditions = [];
 
-    if (has('fever') && (has('cough') || has('sore throat'))) {
-      conditions.push({ name: 'Flu', confidence: 0.8 });
+    // Flu: require fever + respiratory symptom + systemic sign to reduce overmatching
+    if (has('fever') && (has('cough') || has('sore throat')) && (has('body ache') || has('fatigue') || has('sweating'))) {
+      conditions.push({ name: 'Flu', confidence: 0.65 });
     }
     // Common cold mappings
     if ((has('sneezing') || has('runny nose')) && has('sore throat')) {
@@ -381,11 +448,29 @@ export const predictDisease = async (req, res) => {
       return res.status(200).json({ prediction: possible[0].name, confidence: possible[0].confidence, possible });
     }
 
-    // sort by confidence
-    conditions.sort((a, b) => b.confidence - a.confidence);
-    const top = conditions[0];
+    // If NB model gives a strong prediction, prefer it
+    if (nbResult && nbResult.length) {
+      const nbTop = nbResult[0];
+      if (nbTop.probability >= 0.4) {
+        // convert probability (0..1) to confidence with a slight boost
+        const conf = Math.min(0.98, Math.round(nbTop.probability * 0.95 * 100) / 100);
+        return res.status(200).json({ prediction: nbTop.name, confidence: conf, possible: nbResult.map(r=>({name:r.name,confidence:Math.max(0.05, Math.round(r.probability*0.95*100)/100)})) });
+      }
+    }
 
-    res.status(200).json({ prediction: top.name, confidence: top.confidence, possible: conditions });
+    // sort by confidence (rule-based) and merge NB as secondary suggestions
+    conditions.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    const possible = [...conditions];
+    if (nbResult && nbResult.length) {
+      nbResult.forEach(r => {
+        if (!possible.find(p => p.name === r.name)) {
+          possible.push({ name: r.name, confidence: Math.max(0.15, Math.round(r.probability * 0.85 * 100) / 100) });
+        }
+      });
+    }
+    possible.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    const top = possible[0];
+    return res.status(200).json({ prediction: top.name, confidence: top.confidence, possible });
   } catch (error) {
     console.error('Prediction error:', error);
     res.status(500).json({ message: 'Error while predicting disease', error: error.message });
